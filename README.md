@@ -1,6 +1,6 @@
 # observability-stack-k8s
 
-> **Prometheus + Grafana + ELK Stack** — a production-style observability platform mirroring the monitoring architecture used for Rakuten Mobile and Korea Telecom 5G Core deployments.
+> **Prometheus + Grafana + ELK Stack** — a production-style observability platform mirroring the monitoring architecture used for 5G Core deployments.
 
 ![CI](https://github.com/YOUR_USERNAME/observability-stack-k8s/actions/workflows/ci.yml/badge.svg)
 
@@ -274,14 +274,14 @@ observability-stack-k8s/
 
 ## Connecting to Resume
 
-This project directly mirrors production work from the Oracle / Rakuten Mobile engagement:
+This project directly mirrors production work :
 
 | Resume Claim | Project Implementation |
 |---|---|
 | *"Built KPI observability dashboards using Prometheus and Grafana"* | Pre-built Grafana dashboard with NF metrics, latency percentiles, gauge panels |
 | *"Leveraged ELK Stack for centralised log aggregation"* | Full Logstash → Elasticsearch → Kibana pipeline |
 | *"Prometheus and Grafana; ELK Stack for log correlation and incident triage"* | Dual pipeline: metrics via Prometheus, logs via ELK |
-| *"Kubernetes / OCI environments"* | Docker Compose here, K8s manifests can be added |
+| *"Kubernetes environments"* | Docker Compose here, K8s manifests can be added |
 | *"5G Core NFs (PCF, NRF, SCP)"* | sample-app simulates NF registration, policy decisions, SBI-style endpoints |
 
 ---
