@@ -1,4 +1,4 @@
-# observability-stack-k8s
+# observability-stack-k8s rakuten
 
 > **Prometheus + Grafana + ELK Stack** — a production-style observability platform mirroring the monitoring architecture used for 5G Core deployments.
 
