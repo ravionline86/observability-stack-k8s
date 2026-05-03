@@ -1,0 +1,194 @@
+version: "3.8"
+
+# ============================================================
+# Observability Stack - Prometheus + Grafana + ELK
+# Mirrors Rakuten Mobile 5G Core monitoring architecture
+# Author: Ravinder Kumar
+# ============================================================
+
+networks:
+  observability:
+    driver: bridge
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
+  elasticsearch_data: {}
+
+services:
+
+  # ----------------------------------------------------------
+  # SAMPLE APP — emits metrics (/metrics) and structured logs
+  # ----------------------------------------------------------
+  sample-app:
+    build:
+      context: ./sample-app
+    container_name: sample-app
+    ports:
+      - "8080:8080"
+    networks:
+      - observability
+    environment:
+      - APP_ENV=production
+      - LOG_LEVEL=info
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=8080"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ----------------------------------------------------------
+  # PROMETHEUS — metrics collection & alerting
+  # ----------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    container_name: prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+      - "--storage.tsdb.retention.time=15d"
+      - "--web.enable-lifecycle"
+      - "--web.enable-admin-api"
+    networks:
+      - observability
+    restart: unless-stopped
+    depends_on:
+      - sample-app
+
+  # ----------------------------------------------------------
+  # ALERTMANAGER — routes Prometheus alerts
+  # ----------------------------------------------------------
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+      - "--storage.path=/alertmanager"
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # GRAFANA — dashboards & visualisation
+  # ----------------------------------------------------------
+  grafana:
+    image: grafana/grafana:10.4.0
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=observability123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_DOMAIN=localhost
+      - GF_SMTP_ENABLED=false
+      - GF_LOG_LEVEL=info
+    networks:
+      - observability
+    restart: unless-stopped
+    depends_on:
+      - prometheus
+
+  # ----------------------------------------------------------
+  # ELASTICSEARCH — log storage (single-node dev mode)
+  # ----------------------------------------------------------
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    container_name: elasticsearch
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - xpack.security.enrollment.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - bootstrap.memory_lock=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # LOGSTASH — log ingestion & parsing pipeline
+  # ----------------------------------------------------------
+  logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    container_name: logstash
+    ports:
+      - "5000:5000/tcp"
+      - "5000:5000/udp"
+      - "9600:9600"
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    environment:
+      - LS_JAVA_OPTS=-Xmx256m -Xms256m
+    networks:
+      - observability
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # KIBANA — log visualisation UI
+  # ----------------------------------------------------------
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.13.0
+    container_name: kibana
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    networks:
+      - observability
+    depends_on:
+      - elasticsearch
+    restart: unless-stopped
+
+  # ----------------------------------------------------------
+  # NODE EXPORTER — host-level system metrics (CPU/RAM/Disk)
+  # ----------------------------------------------------------
+  node-exporter:
+    image: prom/node-exporter:v1.7.0
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    networks:
+      - observability
+    restart: unless-stopped

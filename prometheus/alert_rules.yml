@@ -1,0 +1,138 @@
+# ============================================================
+# Prometheus Alerting Rules
+# Mirrors production alert patterns used for Rakuten 5G Core
+# ============================================================
+
+groups:
+
+  # ── Application / NF health alerts ──────────────────────
+  - name: application_alerts
+    rules:
+
+      - alert: AppDown
+        expr: up{job="sample-app"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: core-network
+        annotations:
+          summary: "Sample App is DOWN"
+          description: "The sample-app target {{ $labels.instance }} has been down for more than 1 minute. Immediate investigation required."
+
+      - alert: HighRequestLatency
+        expr: histogram_quantile(0.95, rate(app_request_duration_seconds_bucket[5m])) > 0.5
+        for: 2m
+        labels:
+          severity: warning
+          team: core-network
+        annotations:
+          summary: "High p95 request latency on {{ $labels.endpoint }}"
+          description: "p95 latency is {{ $value | humanizeDuration }} on endpoint {{ $labels.endpoint }}. Threshold: 500ms."
+
+      - alert: HighErrorRate
+        expr: rate(app_requests_total{status=~"5.."}[5m]) / rate(app_requests_total[5m]) > 0.05
+        for: 2m
+        labels:
+          severity: warning
+          team: core-network
+        annotations:
+          summary: "Error rate above 5% on {{ $labels.endpoint }}"
+          description: "Error rate is {{ $value | humanizePercentage }} on {{ $labels.endpoint }}."
+
+      - alert: NfRegistrationFailureSpike
+        expr: rate(nf_registrations_total{result="failure"}[5m]) > 0.5
+        for: 1m
+        labels:
+          severity: critical
+          team: core-network
+        annotations:
+          summary: "NF registration failures spiking"
+          description: "NF registration failure rate is {{ $value }} req/s for NF type {{ $labels.nf_type }}."
+
+      - alert: PolicyDecisionFailures
+        expr: rate(policy_decisions_total{result="failure"}[5m]) > 1
+        for: 2m
+        labels:
+          severity: warning
+          team: core-network
+        annotations:
+          summary: "Policy decision failures elevated"
+          description: "Policy decision failures at {{ $value }} req/s for decision type {{ $labels.decision_type }}."
+
+      - alert: ActiveSessionsDrop
+        expr: app_active_sessions < 10
+        for: 2m
+        labels:
+          severity: warning
+          team: core-network
+        annotations:
+          summary: "Active sessions dropped below threshold"
+          description: "Active sessions count is {{ $value }}, which is below the 10-session floor. Possible NF connectivity issue."
+
+  # ── Infrastructure / host alerts ────────────────────────
+  - name: infrastructure_alerts
+    rules:
+
+      - alert: HighCpuUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High CPU usage on {{ $labels.instance }}"
+          description: "CPU usage is {{ $value | humanize }}% (threshold: 80%)."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          team: infrastructure
+        annotations:
+          summary: "High memory usage on {{ $labels.instance }}"
+          description: "Memory usage is {{ $value | humanize }}% (threshold: 85%)."
+
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Low disk space on {{ $labels.instance }}"
+          description: "Disk space available is {{ $value | humanize }}% on root filesystem."
+
+      - alert: NodeExporterDown
+        expr: up{job="node-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: infrastructure
+        annotations:
+          summary: "Node Exporter is DOWN"
+          description: "node-exporter on {{ $labels.instance }} is not reachable."
+
+  # ── Prometheus self-health ────────────────────────────
+  - name: prometheus_health
+    rules:
+
+      - alert: PrometheusTargetMissing
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: observability
+        annotations:
+          summary: "Prometheus scrape target missing: {{ $labels.job }}"
+          description: "Target {{ $labels.instance }} for job {{ $labels.job }} is not reachable."
+
+      - alert: PrometheusRuleEvaluationSlow
+        expr: prometheus_rule_evaluation_duration_seconds{quantile="0.9"} > 0.2
+        for: 5m
+        labels:
+          severity: info
+          team: observability
+        annotations:
+          summary: "Prometheus rule evaluation is slow"
+          description: "p90 rule evaluation time is {{ $value }}s."
